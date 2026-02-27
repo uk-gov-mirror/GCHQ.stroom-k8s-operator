@@ -759,9 +759,12 @@ func (r *StroomClusterReconciler) createIngresses(ctx context.Context, stroomClu
 
 		if nodeSet.Role != stroomv1.FrontendNodeRole {
 			ingressAnnotations := map[string]string{
-				"nginx.ingress.kubernetes.io/rewrite-target":  "/stroom/noauth/datafeed",
-				"nginx.ingress.kubernetes.io/proxy-body-size": "0", // Disable client request payload size checking
-				"haproxy.router.openshift.io/rewrite-target":  "/stroom/noauth/datafeed",
+				"nginx.ingress.kubernetes.io/rewrite-target":                         "/stroom/noauth/datafeed",
+				"nginx.ingress.kubernetes.io/proxy-body-size":                        "0", // Disable client request payload size checking
+				"haproxy.router.openshift.io/rewrite-target":                         "/stroom/noauth/datafeed",
+				"nginx.ingress.kubernetes.io/auth-tls-verify-client":                 "optional_no_ca",
+				"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream":  "true",
+				"nginx.ingress.kubernetes.io/configuration-snippet":                  "proxy_set_header X-SSL-CERT $ssl_client_escaped_cert;\n",
 			}
 
 			// Apply any user-provided annotations

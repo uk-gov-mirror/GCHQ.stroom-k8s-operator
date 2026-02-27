@@ -759,12 +759,9 @@ func (r *StroomClusterReconciler) createIngresses(ctx context.Context, stroomClu
 
 		if nodeSet.Role != stroomv1.FrontendNodeRole {
 			ingressAnnotations := map[string]string{
-				"nginx.ingress.kubernetes.io/rewrite-target":                         "/stroom/noauth/datafeed",
-				"nginx.ingress.kubernetes.io/proxy-body-size":                        "0", // Disable client request payload size checking
-				"haproxy.router.openshift.io/rewrite-target":                         "/stroom/noauth/datafeed",
-				"nginx.ingress.kubernetes.io/auth-tls-verify-client":                 "optional_no_ca",
-				"nginx.ingress.kubernetes.io/auth-tls-pass-certificate-to-upstream":  "true",
-				"nginx.ingress.kubernetes.io/configuration-snippet":                  "proxy_set_header X-SSL-CERT $ssl_client_escaped_cert;\n",
+				"nginx.ingress.kubernetes.io/rewrite-target":  "/stroom/noauth/datafeed",
+				"nginx.ingress.kubernetes.io/proxy-body-size": "0", // Disable client request payload size checking
+				"haproxy.router.openshift.io/rewrite-target":  "/stroom/noauth/datafeed",
 			}
 
 			// Apply any user-provided annotations
@@ -805,6 +802,38 @@ func (r *StroomClusterReconciler) createIngresses(ctx context.Context, stroomClu
 					},
 				},
 			})
+
+			// HAProxy TLS passthrough ingress — routes raw TLS connections by SNI to the nginx
+			// mTLS terminator Service, which handles the TLS/mTLS handshake and forwards
+			// X-SSL-CERT to Stroom. Only created when mTLS termination is enabled.
+			if ingressSettings.Mtls.Enabled {
+				passthroughLabels := stroomCluster.GetLabels()
+				for k, v := range nodeSet.IngressLabels {
+					passthroughLabels[k] = v
+				}
+
+				ingresses = append(ingresses, netv1.Ingress{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      clusterName + "-mtls-passthrough",
+						Namespace: stroomCluster.Namespace,
+						Labels:    passthroughLabels,
+						Annotations: map[string]string{
+							// Instruct OKD to convert this Ingress to a passthrough Route.
+							// HAProxy forwards the raw TLS stream to the nginx Service without
+							// decrypting it, so nginx performs the full mTLS handshake.
+							"route.openshift.io/termination": "passthrough",
+						},
+					},
+					Spec: netv1.IngressSpec{
+						IngressClassName: &ingressSettings.ClassName,
+						// No spec.tls — passthrough routes have no ingress-level TLS config.
+						Rules: []netv1.IngressRule{
+							r.createIngressRule(ingressSettings.HostName, netv1.PathTypePrefix, "/", stroomCluster.GetNginxMtlsName(), NginxMtlsPortName, ingressSettings.PathTypeOverride),
+						},
+					},
+				})
+			}
+
 		}
 	}
 
